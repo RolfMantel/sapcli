@@ -10,6 +10,7 @@ from xml.sax.saxutils import escape
 import sap.adt.cts
 from sap.adt.cts import Element, WorkbenchABAPObject, TransportTypes
 from sap.errors import SAPCliError
+from sap.rest.errors import HTTPRequestError
 
 from mock import Connection, Response, Request
 from fixtures_adt import (
@@ -171,6 +172,8 @@ NW_752_SP2_TRANSPORT_ATTRIBUTES = {
     'tm:status': 'D',
     'tm:uri': f'/sap/bc/adt/vit/wb/object_type/%20%20%20%20rq/object_name/{TRANSPORT_NUMBER}'
 }
+
+RESPONSE_TRANSPORT_XML = Response(SHORTENED_TRANSPORT_XML, 200, content_type='application/vnd.sap.adt.transportorganizer.v1+xml')
 
 class TestTransportTypes(unittest.TestCase):
 
@@ -760,7 +763,7 @@ class TestADTCTSWorkbenchRequestFetch(TestADTCTSWorkbenchRequestSetup):
 
     def test_fetch_task(self):
         self.connection.set_responses(
-            Response(status_code=200, text=SHORTENED_TASK_XML)
+            Response(status_code=200, text=SHORTENED_TASK_XML, content_type='application/vnd.sap.adt.transportorganizer.v1+xml')
         )
 
         task = sap.adt.cts.WorkbenchTask(None, [], self.connection, TASK_NUMBER)
@@ -776,7 +779,7 @@ class TestADTCTSWorkbenchRequestFetch(TestADTCTSWorkbenchRequestSetup):
 
     def test_fetch_transport(self):
         self.connection.set_responses(
-            Response(status_code=200, text=SHORTENED_TRANSPORT_XML)
+            RESPONSE_TRANSPORT_XML
         )
 
         transport = sap.adt.cts.WorkbenchTransport([], self.connection, TRANSPORT_NUMBER)
@@ -934,16 +937,47 @@ class TestADTCTSWorkbenchBuilder(unittest.TestCase):
         self.assert_trasport_equal(transport[0], connection)
         self.assert_task_equal(transport[0].tasks[0], connection)
 
-    @patch('sap.adt.cts.Workbench.get_transport_requests')
-    def test_fetch_transport_requests_no_transports(self, fake_get_transports):
-        workbench = sap.adt.cts.Workbench(Mock())
+    def test_fetch_transport_request_direct(self):
+        connection = Connection([RESPONSE_TRANSPORT_XML])
+        workbench = sap.adt.cts.Workbench(connection)
 
-        fake_get_transports.return_value = []
+        transport = workbench.fetch_transport_request(TRANSPORT_NUMBER)
 
-        transport = workbench.fetch_transport_request('NPLK123456')
+        self.assertEqual(
+            connection.execs,
+            [Request('GET',
+                     f'/sap/bc/adt/cts/transportrequests/{TRANSPORT_NUMBER}',
+                     {'Accept': 'application/vnd.sap.adt.transportorganizer.v1+xml'},
+                     None,
+                     None)])
 
-        self.assertIsNone(transport)
-        fake_get_transports.assert_called_once_with(user=None)
+        self.assertIsNotNone(transport)
+        self.assertEqual(transport.number, TRANSPORT_NUMBER)
+
+    def test_fetch_transport_request_direct_not_found(self):
+        empty_xml = '''<?xml version="1.0" encoding="UTF-8"?>
+<exc:exception xmlns:exc="http://www.sap.com/abapxml/types/communicationframework">
+  <namespace id="com.sap.adt"/>
+  <type id="ExceptionResourceNotFound"/>
+  <message lang="EN">Resource Transport Request/Task TFRTRWGFSD does not exist.</message>
+  <localizedMessage lang="EN">Resource Transport Request/Task TFRTRWGFSD does not exist.</localizedMessage>
+  <properties>
+    <entry key="T100KEY-ID">SADT_RESOURCE</entry>
+    <entry key="T100KEY-NO">002</entry>
+    <entry key="T100KEY-V1">Transport Request/Task</entry>
+    <entry key="T100KEY-V2">TFRTRWGFSD</entry>
+    <entry key="LONGTEXT">&lt;HTML&gt;&lt;HEAD&gt;&lt;TITLE&gt;Conversion of SAPscript Text TR807 to HTML&lt;/TITLE&gt;&lt;META http-equiv="Content-Type" content="text/html; charset=utf-8"&gt;&lt;/HEAD&gt;&lt;BODY&gt;&lt;P&gt;&lt;STRONG&gt;Task/request TFRTRWGFSD does not exist in system ER1&lt;/STRONG&gt;&lt;/P&gt;&lt;P&gt;Message No. TR807&lt;/P&gt;&lt;P&gt;&lt;STRONG&gt;Diagnosis&lt;/STRONG&gt;&lt;/P&gt;&lt;P&gt;Request Transport Request/Task was not found in system TFRTRWGFSD.&lt;/P&gt;&lt;P&gt;&lt;STRONG&gt;System Response&lt;/STRONG&gt;&lt;/P&gt;&lt;P&gt;The request cannot be displayed in system TFRTRWGFSD.&lt;/P&gt;&lt;P&gt;&lt;STRONG&gt;Procedure&lt;/STRONG&gt;&lt;/P&gt;&lt;P&gt;If you want to display the request, log on to the system in which the request was created or log on to a system into which it was already imported.&lt;/P&gt;&lt;P&gt;If you want to display the export or import logs of the request, this can be done in you local system (depending on your transport landscape).&lt;/P&gt;&lt;P&gt;To do this, follow the procedure below:&lt;/P&gt;&lt;OL TYPE=1&gt;&lt;LI&gt;Call transaction SE09 in your local system.&lt;/LI&gt;&lt;LI&gt;Choose "Goto -&amp;gt; Transport Organizer (Extended View)".&lt;/LI&gt;&lt;LI&gt;Choose the "Single Display" tab.&lt;/LI&gt;&lt;LI&gt;Enter the request in the "Request/Task" field.&lt;/LI&gt;&lt;LI&gt;Choose "Logs".&lt;/LI&gt;&lt;/OL&gt;&lt;P&gt;&lt;STRONG&gt;Procedure for System Administration&lt;/STRONG&gt;&lt;/P&gt;&lt;P&gt;&lt;/P&gt;&lt;/BODY&gt;&lt;/HTML&gt;</entry>
+  </properties>
+</exc:exception>'''
+        connection = Connection([Response(empty_xml, 404, {})])
+        workbench = sap.adt.cts.Workbench(connection)
+
+        with self.assertRaises(HTTPRequestError) as cm:
+            workbench.fetch_transport_request(TRANSPORT_NUMBER)
+
+        self.maxDiff = None
+        self.assertEqual(str(cm.exception), '404\n' + empty_xml)
+
 
     @patch('sap.adt.cts.Workbench.get_transport_requests')
     def test_fetch_transport_requests_with_user(self, fake_get_transports):
@@ -964,7 +998,7 @@ class TestADTCTSWorkbenchBuilder(unittest.TestCase):
 
         fake_get_transports.return_value = [wbr]
 
-        transport = workbench.fetch_transport_request('NPLK123456')
+        transport = workbench.fetch_transport_request('NPLK123456', user='anzeiger')
 
         self.assertIsNone(transport)
 
@@ -977,7 +1011,7 @@ class TestADTCTSWorkbenchBuilder(unittest.TestCase):
 
         fake_get_transports.return_value = [wbr_1, wbr_2]
 
-        transport = workbench.fetch_transport_request('NPLK123456')
+        transport = workbench.fetch_transport_request('NPLK123456', user='anzeiger')
 
         self.assertIsNotNone(transport)
         self.assertEqual(transport.number, 'NPLK123456')

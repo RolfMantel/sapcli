@@ -301,7 +301,11 @@ class AbstractWorkbenchRequest:
     def fetch(self):
         """Fetch the request information"""
 
-        resp = self._connection.execute('GET', self.uri)
+        resp = self._connection.execute(
+            'GET',
+            self.uri,
+            accept='application/vnd.sap.adt.transportorganizer.v1+xml',
+        )
 
         self._deserialize(resp.text)
 
@@ -620,11 +624,16 @@ class Workbench:
     def fetch_transport_request(self, number, user=None):
         """Returns the transport request"""
 
-        # TODO: user is None, use GET /sap/bc/adt/cts/transporrequests/{number}
-        transports = self.get_transport_requests(user=user)
+        if user is not None:
+            transports = self.get_transport_requests(user=user)
 
-        for trns in transports:
-            if trns.number == number:
-                return trns
+            for trns in transports:
+                if trns.number == number:
+                    return trns
 
-        return None
+            return None
+
+        transport = WorkbenchTransport([], self._connection, number)
+        transport.fetch()
+
+        return transport

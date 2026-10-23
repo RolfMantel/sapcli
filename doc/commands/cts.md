@@ -8,10 +8,13 @@
 
 ## list
 
-Get list of CTS requests
+Get list of CTS requests with optional filtering by owner and/or request number.
+The parameter *--recursive* causes that all tasks of the given transport are listed too
+and if given multiple times, the objects of the tasks are listed too.
+
 
 ```bash
-sapcli cts list {transport,task} [--recursive|--recursive|...] [--owner login]
+sapcli cts list {transport,task} [--recursive|--recursive|...] [--owner login] [NUMBER]
 ```
 
 ## create
