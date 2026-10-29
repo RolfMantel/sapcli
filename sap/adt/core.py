@@ -235,7 +235,9 @@ class Connection:
         resp = self._http_client.execute_with_session(session, method, url, params=params, headers=headers, body=body)
 
         if accept:
-            resp_content_type = resp.headers['Content-Type']
+            resp_content_type = resp.headers.get('Content-Type', None)
+            if resp_content_type is None:
+                raise UnexpectedResponseContent(accept, '__None__', resp.text)
 
             if isinstance(accept, str):
                 accept = [accept]
