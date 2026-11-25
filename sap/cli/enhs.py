@@ -35,6 +35,9 @@ def list_implementations(connection, args):
 @CommandGroup.command('whereused')
 def whereused(connection, args):
     """Find objects that reference the given Enhancement Spot (BAdI definition)
+
+    enhancement_spot is declared at the group level (install_parser), consistent
+    with list-implementations. Usage: sapcli enhs SPOT_NAME whereused
     """
 
     console = args.console_factory()
